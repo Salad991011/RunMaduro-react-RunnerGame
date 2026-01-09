@@ -3,8 +3,23 @@ import { useRef } from "react";
 import { WORLD } from "../constants";
 import { useGame } from "../store";
 
+// ✅ typed, no "any"
+type MaybeBanker = {
+  commitRunCoinsToBank?: () => void;
+};
+
+function hasCommitFn(x: unknown): x is MaybeBanker {
+  return (
+    typeof x === "object" &&
+    x !== null &&
+    "commitRunCoinsToBank" in x &&
+    typeof (x as { commitRunCoinsToBank?: unknown }).commitRunCoinsToBank === "function"
+  );
+}
+
 export function useGameLoop() {
   const lastT = useRef(0);
+  const didBankThisGameOverRef = useRef(false);
 
   useFrame((state) => {
     const t = state.clock.getElapsedTime();
@@ -12,7 +27,31 @@ export function useGameLoop() {
     lastT.current = t;
 
     const s = useGame.getState();
-    if (s.phase !== "running") return;
+
+    // runtime-safe phase string
+    const phase = (s.phase as unknown) as string;
+
+    // ✅ Gameover banking (no-any + only once)
+    if (phase === "gameover") {
+      if (!didBankThisGameOverRef.current) {
+        if (hasCommitFn(s)) {
+          s.commitRunCoinsToBank?.();
+        }
+        didBankThisGameOverRef.current = true;
+      }
+      lastT.current = t;
+      return;
+    }
+
+    // reset flag when leaving gameover
+    if (didBankThisGameOverRef.current) {
+      didBankThisGameOverRef.current = false;
+    }
+
+    if (phase !== "running") {
+      lastT.current = t;
+      return;
+    }
 
     // difficulty ramp
     const nextSpeed = Math.min(WORLD.maxSpeed, s.speed + WORLD.speedRampPerSec * dt);
@@ -42,7 +81,6 @@ export function useGameLoop() {
       }
     }
 
-    // Single state update (less rerenders, no stale values)
     useGame.setState({
       speed: nextSpeed,
       z: nextZ,

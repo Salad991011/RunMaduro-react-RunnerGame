@@ -6,7 +6,13 @@ export type GamePhase = "menu" | "running" | "paused" | "gameover";
 type GameState = {
   phase: GamePhase;
   score: number;
+
+  // coins collected during the CURRENT run
   coins: number;
+
+  // persistent currency (future upgrades/skins/consumables)
+  bankCoins: number;
+
   speed: number;
 
   // player
@@ -22,9 +28,17 @@ type GameState = {
   // actions
   start: () => void;
   restart: () => void;
+
   setPhase: (p: GamePhase) => void;
+
   addScore: (d: number) => void;
   addCoin: () => void;
+
+  // economy placeholders
+  addBankCoins: (n: number) => void;
+  spendBankCoins: (n: number) => boolean;
+  commitRunCoinsToBank: () => void;
+
   setSpeed: (v: number) => void;
   setLaneIndex: (i: number) => void;
   setPlayerY: (y: number) => void;
@@ -33,7 +47,7 @@ type GameState = {
   setZ: (z: number) => void;
 };
 
-const initial = {
+const initialRun = {
   phase: "menu" as const,
   score: 0,
   coins: 0,
@@ -46,24 +60,54 @@ const initial = {
   z: 0,
 };
 
-export const useGame = create<GameState>((set) => ({
-  ...initial,
+export const useGame = create<GameState>((set, get) => ({
+  ...initialRun,
+
+  // Persistent currency (kept across restarts)
+  bankCoins: 0,
 
   start: () => {
-    // Start should always begin from a clean collision world
     resetCollisionWorlds();
     set({ phase: "running" });
   },
 
   restart: () => {
-    // Restart should clear coins/obstacles + timers, then reset all game state
+    // For testing: restart clears the current run state + collision worlds,
+    // but does NOT wipe bankCoins (persistent currency).
     resetCollisionWorlds();
-    set({ ...initial, phase: "running" });
+    const bankCoins = get().bankCoins;
+    set({ ...initialRun, bankCoins, phase: "running" });
   },
 
   setPhase: (p) => set({ phase: p }),
+
   addScore: (d) => set((s) => ({ score: s.score + d })),
+
   addCoin: () => set((s) => ({ coins: s.coins + 1 })),
+
+  // -------------------------
+  // Economy placeholders
+  // -------------------------
+  addBankCoins: (n) =>
+    set((s) => ({
+      bankCoins: s.bankCoins + Math.max(0, Math.floor(n)),
+    })),
+
+  spendBankCoins: (n) => {
+    const cost = Math.max(0, Math.floor(n));
+    const { bankCoins } = get();
+    if (bankCoins < cost) return false;
+    set({ bankCoins: bankCoins - cost });
+    return true;
+  },
+
+  commitRunCoinsToBank: () => {
+    // Move current run coins into persistent bank (use on gameover later)
+    const { coins, bankCoins } = get();
+    if (coins <= 0) return;
+    set({ bankCoins: bankCoins + coins, coins: 0 });
+  },
+
   setSpeed: (v) => set({ speed: v }),
   setLaneIndex: (i) => set({ laneIndex: i }),
   setPlayerY: (y) => set({ y }),
